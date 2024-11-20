@@ -10,8 +10,10 @@ import tyro
 from PIL import Image
 from torch import Tensor, optim
 
-from gsplat import rasterization, rasterization_2dgs
-
+from gsplat.rendering import rasterization, _rasterization
+def seed_everything(seed: int):
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
 
 class SimpleTrainer:
     """Trains random gaussians to fit an image."""
@@ -76,6 +78,7 @@ class SimpleTrainer:
 
     def train(
         self,
+        rasterize_fnc=_rasterization,
         iterations: int = 1000,
         lr: float = 0.01,
         save_imgs: bool = False,
@@ -96,12 +99,10 @@ class SimpleTrainer:
             device=self.device,
         )
 
-        if model_type == "3dgs":
-            rasterize_fnc = rasterization
-        elif model_type == "2dgs":
-            rasterize_fnc = rasterization_2dgs
-
-        for iter in range(iterations):
+        verbose=False
+        from tqdm import tqdm
+        pbar = tqdm(range(iterations))
+        for iter in pbar:
             start = time.time()
 
             renders = rasterize_fnc(
@@ -114,7 +115,7 @@ class SimpleTrainer:
                 K[None],
                 self.W,
                 self.H,
-                packed=False,
+                # packed=False,
             )[0]
             out_img = renders[0]
             torch.cuda.synchronize()
@@ -126,7 +127,8 @@ class SimpleTrainer:
             torch.cuda.synchronize()
             times[1] += time.time() - start
             optimizer.step()
-            print(f"Iteration {iter + 1}/{iterations}, Loss: {loss.item()}")
+            if verbose:
+                print(f"Iteration {iter + 1}/{iterations}, Loss: {loss.item()}")
 
             if save_imgs and iter % 5 == 0:
                 frames.append((out_img.detach().cpu().numpy() * 255).astype(np.uint8))
@@ -143,11 +145,14 @@ class SimpleTrainer:
                 duration=5,
                 loop=0,
             )
-        print(f"Total(s):\nRasterization: {times[0]:.3f}, Backward: {times[1]:.3f}")
-        print(
+        
+        if verbose:
+            print(f"Total(s):\nRasterization: {times[0]:.3f}, Backward: {times[1]:.3f}")
+            print(
             f"Per step(s):\nRasterization: {times[0]/iterations:.5f}, Backward: {times[1]/iterations:.5f}"
         )
 
+        return out_img
 
 def image_path_to_tensor(image_path: Path):
     import torchvision.transforms as transforms
@@ -164,10 +169,12 @@ def main(
     num_points: int = 100000,
     save_imgs: bool = True,
     img_path: Optional[Path] = None,
-    iterations: int = 1000,
+    iterations: int = 100,
     lr: float = 0.01,
     model_type: Literal["3dgs", "2dgs"] = "3dgs",
 ) -> None:
+    img_path = "/secondary/home/aayushg/gsplat_dev/examples/simple.jpg"
+    print(f"img_path: {img_path}")
     if img_path:
         gt_image = image_path_to_tensor(img_path)
     else:
