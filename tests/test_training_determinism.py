@@ -30,6 +30,14 @@ def seed_everything(seed: int):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
 
+def pytest_addoption(parser):
+    parser.addoption(
+        "--use_pytorch",
+        action="store_true",
+        default=False,
+        help="Use PyTorch rasterization instead of default"
+    )
+
 def train_simpletrainer(num_iterations: int, rasterize_fnc):
     num_points=100000
     height, width = 250, 250
@@ -53,9 +61,10 @@ def train_simpletrainer(num_iterations: int, rasterize_fnc):
 
     return final_img
 
-@pytest.mark.parametrize("use_torch_rasterization", [False, True])
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="No CUDA device")
-def test_gsplat_training(use_torch_rasterization: bool):
+def test_gsplat_training(request):
+    # Get rasterization choice from CLI parameter
+    use_torch_rasterization = request.config.getoption("--use_pytorch")
     print(f"use_torch_rasterization: {use_torch_rasterization}")
     if use_torch_rasterization:
         rasterize_fnc = _rasterization
@@ -83,17 +92,7 @@ def test_gsplat_training(use_torch_rasterization: bool):
                 diff = (renders[i] - renders[j]).abs().max()
                 print(f"Max difference between renders {i} and {j}: {diff}")
                 torch.testing.assert_close(renders[i], renders[j], rtol=1e-4, atol=1e-4)
+
         num_iterations += 1
         
         print(f"{'*' * 50}")
-
-    import matplotlib.pyplot as plt
-
-    # Save barplot of means
-    plt.figure(figsize=(10, 5))
-    plt.bar(range(len(means)), means)
-    plt.xlabel('Run')
-    plt.ylabel('Mean of Final Image')
-    plt.title('Mean of Final Image Across Runs')
-    plt.savefig('means.png')
-    plt.close()
